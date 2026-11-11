@@ -53,6 +53,7 @@ local function controlHosts()
 		items = b.itemsTab.controls,
 		config = b.configTab.varControls,
 		party = b.partyTab.controls,
+		compare = b.compareTab.controls,
 		calcs = { },
 		popup = main.popups[1] and main.popups[1].controls or { },
 	}
@@ -1167,6 +1168,218 @@ function api.setNotes(req)
 	tab.controls.edit:SetText(req.text)
 	tab.modFlag = true
 	return { }
+end
+
+-- Compare tab: comparison builds next to the build (CompareTab, CompareEntry)
+
+-- What CompareTab:Draw does before drawing: rebuilds the active comparison
+-- when it changed and fills its set and skill selectors
+local function compareSync()
+	local tab = build().compareTab
+	local entry = tab:GetActiveCompare()
+	if entry and entry.buildFlag then
+		entry:Rebuild()
+	end
+	if entry then
+		tab:UpdateSetSelectors(entry)
+	end
+	return tab, entry
+end
+
+-- The selectors above the sub-tabs, in upstream's order
+local compareHeaderControls = {
+	"compareBuildSelect", "compareSpecSelect", "compareSkillSetSelect", "compareItemSetSelect", "compareConfigSetSelect",
+	"cmpSocketGroup", "cmpMainSkill", "cmpSkillPart", "cmpStageCount", "cmpMineCount", "cmpMinion", "cmpMinionSkill",
+}
+local comparePowerControls = {
+	"comparePowerStatSelect", "comparePowerTreeCheck", "comparePowerItemsCheck", "comparePowerGemsCheck",
+	"comparePowerSupportGemsCheck", "comparePowerConfigCheck",
+}
+
+local function compareControlList(tab, names)
+	return arrayOf(names, function(name)
+		local d = describeControl(tab.controls[name])
+		d.path = "compare." .. name
+		return d
+	end)
+end
+
+-- CompareTab's matchFlags
+local function compareMatchFlags(reqFlags, notFlags, flags)
+	if type(reqFlags) == "string" then
+		reqFlags = { reqFlags }
+	end
+	for _, flag in ipairs(reqFlags or { }) do
+		if not flags[flag] then
+			return false
+		end
+	end
+	if type(notFlags) == "string" then
+		notFlags = { notFlags }
+	end
+	for _, flag in ipairs(notFlags or { }) do
+		if flags[flag] then
+			return false
+		end
+	end
+	return true
+end
+
+-- CompareTab:DrawSummary and DrawStatList, as rows instead of drawing
+local function compareSummary(tab, entry)
+	local primaryCalcs = tab.primaryBuild.calcsTab
+	local primaryEnv = primaryCalcs and primaryCalcs.mainEnv
+	local compareEnv = entry.calcsTab and entry.calcsTab.mainEnv
+	local primaryMinion = primaryEnv and primaryEnv.player and primaryEnv.player.mainSkill
+		and primaryEnv.player.mainSkill.minion and primaryEnv.minion
+	local compareMinion = compareEnv and compareEnv.player and compareEnv.player.mainSkill
+		and compareEnv.player.mainSkill.minion and compareEnv.minion
+	local useMinion = primaryMinion or compareMinion
+	local primaryOutput = primaryMinion and primaryEnv.minion.output or primaryCalcs.mainOutput
+	local compareOutput = compareMinion and compareEnv.minion.output or entry:GetOutput()
+	local rows = setmetatable({ }, { __jsontype = "array" })
+	if not primaryOutput or not compareOutput then
+		return rows
+	end
+	local displayStats = useMinion and tab.primaryBuild.minionDisplayStats or tab.primaryBuild.displayStats
+	local primaryActor = primaryMinion and primaryEnv.minion or primaryEnv.player
+	local compareActor = compareMinion and compareEnv.minion or compareEnv.player
+	local primaryFlags = primaryActor and primaryActor.mainSkill and primaryActor.mainSkill.skillFlags or { }
+	local compareFlags = compareActor and compareActor.mainSkill and compareActor.mainSkill.skillFlags or { }
+	for _, statData in ipairs(displayStats) do
+		if not statData.stat and not statData.label then
+			if #rows > 0 and not rows[#rows].gap then
+				t_insert(rows, { gap = true })
+			end
+		elseif statData.stat == "SkillDPS" or statData.hideStat then
+			-- Not shown in the comparison
+		elseif not compareMatchFlags(statData.flag, statData.notFlag, primaryFlags)
+			and not compareMatchFlags(statData.flag, statData.notFlag, compareFlags) then
+			-- Not relevant to either build's skill
+		elseif statData.stat then
+			local primaryVal = primaryOutput[statData.stat] or 0
+			local compareVal = compareOutput[statData.stat] or 0
+			if statData.childStat then
+				primaryVal = type(primaryVal) == "table" and primaryVal[statData.childStat] or 0
+				compareVal = type(compareVal) == "table" and compareVal[statData.childStat] or 0
+			end
+			if type(primaryVal) == "table" or type(compareVal) == "table" then
+				primaryVal = 0
+				compareVal = 0
+			end
+			if (primaryVal ~= 0 or compareVal ~= 0) and
+				(not statData.condFunc or statData.condFunc(primaryVal, primaryOutput) or statData.condFunc(compareVal, compareOutput)) then
+				local fmt = statData.fmt or "d"
+				local multiplier = (statData.pc or statData.mod) and 100 or 1
+				local row = {
+					label = (statData.color or "^7") .. (statData.label or statData.stat),
+					primary = formatNumSep(string.format("%" .. fmt, primaryVal * multiplier)),
+					compare = formatNumSep(string.format("%" .. fmt, compareVal * multiplier)),
+				}
+				local diff = compareVal - primaryVal
+				if diff > 0.001 or diff < -0.001 then
+					local isBetter = (statData.lowerIsBetter and diff < 0) or (not statData.lowerIsBetter and diff > 0)
+					local diffStr = formatNumSep(string.format("%+" .. fmt, diff * multiplier))
+					if primaryVal ~= 0 then
+						diffStr = diffStr .. string.format(" (%+.1f%%)", compareVal / primaryVal * 100 - 100)
+					end
+					row.diff = (isBetter and colorCodes.POSITIVE or colorCodes.NEGATIVE) .. diffStr
+				end
+				t_insert(rows, row)
+			end
+		elseif statData.label and statData.condFunc then
+			local primaryShown = statData.condFunc(primaryOutput)
+			local compareShown = statData.condFunc(compareOutput)
+			if primaryShown or compareShown then
+				local valStr = statData.val or ""
+				t_insert(rows, {
+					label = (statData.color or "^7") .. statData.label,
+					primary = primaryShown and valStr or "-",
+					compare = compareShown and valStr or "-",
+				})
+			end
+		end
+	end
+	if #rows > 0 and rows[#rows].gap then
+		rows[#rows] = nil
+	end
+	return rows
+end
+
+function api.compare()
+	local tab, entry = compareSync()
+	local out = {
+		entries = arrayOf(tab.compareEntries, function(e) return e.label or "" end),
+		active = tab.activeCompareIndex,
+		primaryName = tab:GetShortBuildName(tab.primaryBuild.buildName),
+	}
+	if entry then
+		out.compareName = entry.label or "Compare Build"
+		out.controls = compareControlList(tab, compareHeaderControls)
+		out.summary = compareSummary(tab, entry)
+		out.powerControls = compareControlList(tab, comparePowerControls)
+	end
+	return out
+end
+
+-- CompareTab:ImportBuild / ImportFromCode, as the import popup does
+function api.compareImport(req)
+	local tab = build().compareTab
+	local xml = req.xml
+	if req.code then
+		local code = req.code:gsub("%s", "")
+		xml = Inflate(common.base64.decode(code:gsub("-", "+"):gsub("_", "/")))
+		if not xml or #xml == 0 then
+			error("invalid build code")
+		end
+	end
+	if not xml then
+		error("no build given")
+	end
+	preloadTrees(xml)
+	local label = req.name ~= "" and req.name or "Imported build"
+	if not tab:ImportBuild(xml, label) then
+		error("the build could not be loaded")
+	end
+	return { index = tab.activeCompareIndex }
+end
+
+function api.compareRemove(req)
+	local tab = build().compareTab
+	tab:RemoveBuild(req.index or tab.activeCompareIndex)
+	return { }
+end
+
+-- The compare power report (CompareTab:ComparePowerBuilder, run to the end
+-- instead of a frame at a time), rows as ComparePowerReportListControl
+-- sorts and shows them
+function api.comparePower()
+	local tab, entry = compareSync()
+	if not entry then
+		error("no comparison build")
+	end
+	local list = tab.controls.comparePowerReportList
+	if not tab.comparePowerStat then
+		list:SetReport(nil, nil)
+		return { rows = setmetatable({ }, { __jsontype = "array" }), status = list.statusText }
+	end
+	tab.comparePowerDirty = false
+	tab.comparePowerCoroutine = nil
+	tab.comparePowerCompareId = entry
+	tab:ComparePowerBuilder(entry, tab.comparePowerStat, tab.comparePowerCategories)
+	list:SetReport(tab.comparePowerStat, tab.comparePowerResults)
+	tab.comparePowerListSynced = true
+	return {
+		columns = arrayOf(list.colList, function(c) return c.label end),
+		rows = arrayOf(list.list, function(row)
+			local cells = { }
+			for i = 1, #list.colList do
+				cells[i] = list:GetRowValue(i, nil, row)
+			end
+			return { cells = setmetatable(cells, { __jsontype = "array" }), nodeId = row.nodeId }
+		end),
+		status = list.statusText,
+	}
 end
 
 -- Dispatch: one JSON request {cmd, ...}, one JSON response. Each command is

@@ -145,3 +145,17 @@ export type Breakdown = {
 };
 
 export type DisplayItem = { item?: Item; existing?: boolean; lines?: TooltipLine[]; controls?: Control[] };
+
+export type CompareRow = { label?: string; primary?: string; compare?: string; diff?: string; gap?: boolean };
+
+export type Compare = {
+  entries: string[];
+  active: number;
+  primaryName: string;
+  compareName?: string;
+  controls?: Control[];
+  summary?: CompareRow[];
+  powerControls?: Control[];
+};
+
+export type ComparePower = { columns?: string[]; rows: { cells: string[]; nodeId?: number }[]; status?: string };
