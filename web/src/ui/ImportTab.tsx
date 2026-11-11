@@ -6,6 +6,9 @@ import { useEffect, useState } from "preact/hooks";
 import type { TabProps } from "../app";
 import { engine } from "../app";
 import type { Engine } from "../engine/client";
+import type { Control } from "../engine/types";
+import { ColorText } from "./ColorText";
+import { ControlView } from "./Control";
 
 const STORE = "pob-builds";
 
@@ -39,7 +42,36 @@ function looksLikeXml(text: string) {
   return text.trimStart().startsWith("<");
 }
 
-export function ImportTab({ act, state }: TabProps) {
+type CharacterImport = { status: string; mode: string; controls: Control[] };
+
+// Character import from a public profile: upstream's import tab (account
+// name section). Its downloads go through the proxy in config.json.
+function CharacterImportSection({ rev, setControl }: TabProps) {
+  const [ci, setCi] = useState<CharacterImport | null>(null);
+  useEffect(() => {
+    engine.call<CharacterImport>("characterImport").then(setCi);
+  }, [rev]);
+  if (!ci) return null;
+  return (
+    <section>
+      <h3>Import a character</h3>
+      <p>
+        From a public profile: the account name with its discriminator (Name#1234), then the character.
+      </p>
+      <div class="character-import">
+        {ci.controls.map((c) => (
+          <ControlView key={c.path} path={c.path!} c={c} set={setControl} />
+        ))}
+      </div>
+      <p>
+        <ColorText text={"^7Status: " + ci.status} />
+      </p>
+    </section>
+  );
+}
+
+export function ImportTab(props: TabProps) {
+  const { act, state } = props;
   const [input, setInput] = useState("");
   const [code, setCode] = useState("");
   const [saved, setSaved] = useState<Saved[]>(readSaved);
@@ -98,6 +130,7 @@ export function ImportTab({ act, state }: TabProps) {
           <button onClick={() => act("newBuild")}>New build</button>
         </div>
       </section>
+      <CharacterImportSection {...props} />
       <section>
         <h3>Export</h3>
         <div class="buttons">

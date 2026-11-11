@@ -1,0 +1,16 @@
+[package]
+name = "proxy"
+description = "pob-proxy: forwards the public character endpoints of pathofexile.com to the web app, see crates/proxy/README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "pob-proxy"
+path = "src/main.rs"
+
+[dependencies]
+tiny_http = "0.12"
+ureq = "2"

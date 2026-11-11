@@ -5,6 +5,7 @@
 
 pub mod host;
 pub mod imported;
+mod sha1;
 mod utf8;
 
 /// Upstream's modules, translated; `chunk(path)` finds one.

@@ -41,6 +41,19 @@ impl eval::Globals for ProgramGlobals {
     }
 }
 
+/// A table as a chunk's globals (setfenv)
+struct TableGlobals(Value);
+
+impl eval::Globals for TableGlobals {
+    fn get(&self, name: &str) -> Value {
+        lua::rt::index(&self.0, &Value::str(name)).unwrap_or_default()
+    }
+
+    fn set(&self, name: &str, v: Value) {
+        let _ = lua::rt::set_index(&self.0, Value::str(name), v);
+    }
+}
+
 impl DataSource for Imported {
     fn load(&self, env: &Rc<Env>, name: &str, args: &[Value]) -> LResult<Vec<Value>> {
         let rel = format!("{name}.lua");
@@ -66,6 +79,15 @@ pub fn evaluate(env: &Rc<Env>, rel: &str, src: &[u8], args: &[Value]) -> LResult
     ev.make_function = Some(Rc::new(move |r, locals| {
         crate::data::make(&r.file, r.offset, &fenv, locals)
     }));
+    ev.eval_file(rel, src, args.to_vec())
+        .map_err(|e| LuaError::msg(e.to_string()))
+}
+
+/// Evaluates a data-only chunk with a table as its globals, as a chunk
+/// setfenv sandboxed sees them; functions in it are not supported.
+pub fn evaluate_in(globals: &Value, rel: &str, src: &[u8], args: &[Value]) -> LResult<Vec<Value>> {
+    let mut ev = eval::Env::new();
+    ev.program = Some(Rc::new(TableGlobals(globals.clone())));
     ev.eval_file(rel, src, args.to_vec())
         .map_err(|e| LuaError::msg(e.to_string()))
 }

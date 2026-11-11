@@ -78,6 +78,7 @@ web/ (TypeScript, Preact)               crates/
                                         +-- cli       `pob`: native runner, data bundles, benchmarks
                                         +-- lua       Lua values, patterns, parser and runtime
                                         +-- upstream  upstream's program translated to Rust (luagen)
+                                        +-- proxy     `pob-proxy`: GGG's public character pages for the browser
                                         `-- equivalence  tests against the oracle
 ```
 
@@ -96,6 +97,18 @@ web/ (TypeScript, Preact)               crates/
   (`core.bin`), and every tree version as separate files. The site serves them
   as static assets; files the engine finds missing (older trees) are fetched
   and the request retried. They are not compiled into the wasm module.
+- **Calculation stays in the browser.** The site is static files; every
+  calculation runs on the user's machine. A server runs only what a browser
+  cannot do: today `crates/proxy` (`pob-proxy`), which forwards the public
+  character endpoints of pathofexile.com, since they send no CORS headers.
+  It is stateless, forwards only those paths with GET and never a user's
+  cookies, and is meant to be self-hosted next to the site.
+- **Downloads.** Upstream downloads with `launch:DownloadPage`; the session
+  queues those requests instead of running them, every response lists the
+  queued ones, and the caller fetches them (pathofexile.com through the
+  proxy set in the site's `config.json`) and hands each result back with
+  `downloadDone`, which runs upstream's callback. So character import is
+  upstream's import tab, unchanged.
 - **WASM.** `crates/wasm` is a plain C ABI (`alloc`, `request`,
   `result_ptr`/`result_len`, ...), so no generated bindings are needed.
 - **Workers.** One engine instance per worker, communicating by messages: a
@@ -303,14 +316,18 @@ the initial corpus (LuaJIT, headless). Targets, to be set with the engine:
 4. **Frontend MVP.** Done: import a build code or XML, stat sidebar, passive
    tree with node power, calcs tab with breakdowns.
 5. **Full frontend.** Skills, items (including crafting), config, notes, party,
-   compare and the remaining features. Character import via OAuth, then trade.
+   compare and the remaining features. Character import, then trade.
    Done: skills (socket groups, gems, main skill, Full DPS), items (slots,
    item sets, items from text, unique and rare templates, tooltips, and
    crafting with upstream's item editor: bases, affixes, variants, quality,
    influences, catalysts, cluster jewels, enchants, anoints, corruption),
    config, notes, party, tree, skill and config sets, export (code, link, XML)
-   and builds saved in the browser. Open: compare, character import via
-   OAuth, trade, art for the tree, node power split over several workers.
+   and builds saved in the browser, character import from public profiles
+   (account name, through `pob-proxy`). Open: compare, trade, art for the
+   tree, node power split over several workers. Character import via OAuth
+   (private profiles) waits for GGG: new OAuth applications are not
+   accepted, and a site needs a confidential client, with a server holding
+   the secret and refresh tokens.
 6. **Daily sync.** Starts now, with the `sync` skill, alongside phase 7.
 7. **Typed engine.** Replace the whole translation with typed Rust, hot paths
    first, each step at parity with the translation and the oracle. Then

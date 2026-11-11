@@ -179,6 +179,114 @@ fn session_commands() {
     assert!(r.contains("\"error\""), "{r}");
 }
 
+/// Answers the engine's downloads (`downloads` in a response) until none are
+/// left, as the browser does through the proxy
+fn call_downloading(s: &Session, req: J, answer: &dyn Fn(&str) -> (u16, String)) -> J {
+    let text = s.request(&req.to_string()).unwrap();
+    let mut v: J = serde_json::from_str(&text).unwrap();
+    if let Some(e) = v.get("error") {
+        panic!("{} failed: {e}", req["cmd"]);
+    }
+    let ok = v["ok"].clone();
+    while let Some(d) = v["downloads"].as_array().and_then(|l| l.first()).cloned() {
+        let (status, body) = answer(d["url"].as_str().unwrap());
+        let done = json!({"cmd": "downloadDone", "id": d["id"], "status": status, "body": body});
+        v = serde_json::from_str(&s.request(&done.to_string()).unwrap()).unwrap();
+        if let Some(e) = v.get("error") {
+            panic!("downloadDone failed: {e}");
+        }
+    }
+    ok
+}
+
+/// Character import from a public profile (the import tab's account name
+/// section), with GGG's responses made from upstream's sample character: the
+/// build equals the one importing the same character directly gives.
+#[test]
+fn character_import() {
+    let sample: J = serde_json::from_str(
+        &std::fs::read_to_string(
+            root().join("upstream/PathOfBuilding/spec/System/SampleCharacter.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let c = sample.get("character").unwrap_or(&sample).clone();
+    let listing = json!([{
+        "name": c["name"], "realm": c["realm"], "class": c["class"],
+        "league": c["league"], "level": c["level"], "experience": c["experience"],
+    }]);
+    let answer = |url: &str| -> (u16, String) {
+        let path = url.split('?').next().unwrap();
+        if path.ends_with("/get-characters") {
+            (200, listing.to_string())
+        } else if path.contains("/view-profile/") {
+            (
+                200,
+                r#"<a href="/account/view-profile/Tester%230001/characters">x</a>"#.into(),
+            )
+        } else if path.ends_with("/get-passive-skills") {
+            let mut p = c["passives"].clone();
+            p["items"] = c.get("jewels").cloned().unwrap_or(json!([]));
+            (200, p.to_string())
+        } else if path.ends_with("/get-items") {
+            (
+                200,
+                json!({"items": c["equipment"], "character": listing[0]}).to_string(),
+            )
+        } else {
+            (404, String::new())
+        }
+    };
+    let s = session();
+    let control = |path: &str, change: J| {
+        let mut req = json!({"cmd": "control", "path": path});
+        req.as_object_mut()
+            .unwrap()
+            .extend(change.as_object().unwrap().clone());
+        call_downloading(&s, req, &answer);
+    };
+    control("import.siteAccountName", json!({"text": "Tester#0001"}));
+    control("import.siteAccountNameGo", json!({"click": true}));
+    let ci = call(&s, json!({"cmd": "characterImport"}));
+    assert_eq!(ci["mode"], "SELECTCHAR", "{ci}");
+    control("import.siteCharImportTree", json!({"click": true}));
+    control("import.siteCharImportItems", json!({"click": true}));
+    let imported = stats(&s);
+
+    // A private profile
+    let private = session();
+    let req = json!({"cmd": "control", "path": "import.siteAccountName", "text": "Private#0001"});
+    call(&private, req);
+    let req = json!({"cmd": "control", "path": "import.siteAccountNameGo", "click": true});
+    call_downloading(&private, req, &|_| (403, String::new()));
+    let ci = call(&private, json!({"cmd": "characterImport"}));
+    assert!(ci["status"].as_str().unwrap().contains("private"), "{ci}");
+
+    // The sample character's class, tree and gear
+    assert!(imported.as_array().unwrap().len() > 20, "{imported}");
+    let st = call(&s, json!({"cmd": "state"}));
+    assert_eq!(st["className"], "Templar");
+    assert_eq!(c["class"], "Hierophant");
+    assert_eq!(st["ascendClassName"], "Hierophant");
+    assert_eq!(st["level"], c["level"]);
+    let alloc = call(&s, json!({"cmd": "treeState"}))["alloc"].clone();
+    for h in c["passives"]["hashes"].as_array().unwrap() {
+        assert!(
+            alloc.as_array().unwrap().contains(h),
+            "node {h} not allocated"
+        );
+    }
+    let items = call(&s, json!({"cmd": "items"}));
+    let equipped = items["slots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|sl| !sl["item"].is_null())
+        .count();
+    assert!(equipped >= 8, "only {equipped} slots equipped: {items}");
+}
+
 #[test]
 fn bundle_round_trip() {
     let packed = session::bundle::pack([("a.lua", &b"return 1"[..]), ("b/c.txt", b"x")]);

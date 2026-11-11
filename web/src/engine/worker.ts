@@ -16,7 +16,10 @@ type Exports = {
 };
 
 export type WorkerRequest = { id: number; req: Record<string, unknown> } | { init: string };
-export type WorkerResponse = { id: number; res: { ok?: unknown; error?: string } };
+export type WorkerResponse = {
+  id: number;
+  res: { ok?: unknown; error?: string; downloads?: { id: number; url: string; header?: string; body?: string }[] };
+};
 
 // The site root, which the page sends first
 let base = "";
