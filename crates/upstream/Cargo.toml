@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 lua.workspace = true
 importer.workspace = true
+sha1_smol = "1"
 
 [build-dependencies]
 importer.workspace = true
+sha1_smol = "1"

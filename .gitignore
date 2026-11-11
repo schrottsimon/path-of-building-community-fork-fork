@@ -6,3 +6,4 @@ __pycache__/
 /web/public/engine.wasm
 /web/public/data
 /web/public/art
+/web/public/config.json

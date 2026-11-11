@@ -474,3 +474,9 @@ textarea {
 .party-tab textarea {
   min-height: 80px;
 }
+.character-import {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+}

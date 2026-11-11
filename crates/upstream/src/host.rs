@@ -17,6 +17,12 @@ pub trait DataSource {
     fn read_file(&self, path: &str) -> Option<Vec<u8>>;
 }
 
+/// A function loadstring returned, and the globals setfenv gave it.
+struct Chunk {
+    func: std::rc::Weak<lua::value::Function>,
+    fenv: Rc<RefCell<Option<Value>>>,
+}
+
 /// The running program.
 pub struct Host {
     pub env: Rc<Env>,
@@ -299,8 +305,13 @@ impl Host {
             );
         }
 
-        // loadstring, which upstream uses on data only (the passive tree)
+        // loadstring, which upstream uses on data only: the passive tree, and
+        // the character list of an account name import (`ImportTab:
+        // ProcessSiteJSON`, which sandboxes the chunk with setfenv). Chunks
+        // are evaluated by the importer, which fails loudly on code.
+        let chunks: Rc<RefCell<Vec<Chunk>>> = Rc::default();
         let ls_env = Rc::downgrade(env);
+        let ls_chunks = chunks.clone();
         set(
             "loadstring",
             func("loadstring", move |a| {
@@ -315,12 +326,55 @@ impl Host {
                     ]);
                 }
                 let env = ls_env.clone();
-                Ok(vec![func("loadstring chunk", move |args| {
+                let fenv: Rc<RefCell<Option<Value>>> = Rc::default();
+                let chunk_fenv = fenv.clone();
+                let chunk = func("loadstring chunk", move |args| {
                     let env = env
                         .upgrade()
                         .ok_or_else(|| lua::LuaError::msg("environment dropped"))?;
-                    crate::imported::evaluate(&env, "loadstring", text.as_bytes(), args)
-                })])
+                    match &*chunk_fenv.borrow() {
+                        Some(globals) => crate::imported::evaluate_in(
+                            globals,
+                            "loadstring",
+                            text.as_bytes(),
+                            args,
+                        ),
+                        None => {
+                            crate::imported::evaluate(&env, "loadstring", text.as_bytes(), args)
+                        }
+                    }
+                });
+                if let Value::Function(f) = &chunk {
+                    let mut list = ls_chunks.borrow_mut();
+                    list.retain(|c| c.func.strong_count() > 0);
+                    list.push(Chunk {
+                        func: Rc::downgrade(f),
+                        fenv,
+                    });
+                }
+                Ok(vec![chunk])
+            }),
+        );
+
+        // setfenv, on loadstring chunks only: they then see the given table
+        // as their globals
+        set(
+            "setfenv",
+            func("setfenv", move |a| {
+                let f = arg(a, 0);
+                let globals = arg(a, 1);
+                if !matches!(globals, Value::Table(_)) {
+                    return err("bad argument #2 to 'setfenv' (table expected)");
+                }
+                if let Value::Function(rc) = &f {
+                    for c in chunks.borrow().iter() {
+                        if c.func.upgrade().is_some_and(|g| Rc::ptr_eq(&g, rc)) {
+                            *c.fenv.borrow_mut() = Some(globals);
+                            return Ok(vec![f.clone()]);
+                        }
+                    }
+                }
+                err("setfenv is only supported on functions loadstring returned")
             }),
         );
 
@@ -382,7 +436,7 @@ impl Host {
                     "lcurl.safe" | "lua-profiler" | "socket" => Ok(Value::Nil),
                     "lua-utf8" => Ok(crate::utf8::library()),
                     "jit" => Ok(env.global("jit")),
-                    "sha1" => Ok(Value::Table(TableRef::new())),
+                    "sha1" => Ok(crate::sha1::library()),
                     _ => {
                         let rel = name.replace('.', "/");
                         if let Some(chunk) = crate::up::chunk(&format!("src/{rel}.lua")) {

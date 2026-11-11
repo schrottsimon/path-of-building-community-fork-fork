@@ -53,6 +53,7 @@ local function controlHosts()
 		items = b.itemsTab.controls,
 		config = b.configTab.varControls,
 		party = b.partyTab.controls,
+		import = b.importTab.controls,
 		calcs = { },
 		popup = main.popups[1] and main.popups[1].controls or { },
 	}
@@ -1169,6 +1170,74 @@ function api.setNotes(req)
 	return { }
 end
 
+-- Downloads. The engine does no I/O: launch:DownloadPage (which upstream
+-- runs as a curl sub script) queues the request instead, every response
+-- lists the queued ones as `downloads`, and the caller fetches them and hands
+-- each result back with `downloadDone`, which calls upstream's callback as
+-- launch:OnSubFinished would
+
+local downloads = { queue = { }, order = { }, nextId = 1 }
+
+function launch:DownloadPage(url, callback, params)
+	params = params or { }
+	local id = downloads.nextId
+	downloads.nextId = id + 1
+	downloads.queue[id] = { url = url, header = params.header, body = params.body, callback = callback }
+	t_insert(downloads.order, id)
+end
+
+local function pendingDownloads()
+	local out = setmetatable({ }, { __jsontype = "array" })
+	for _, id in ipairs(downloads.order) do
+		local d = downloads.queue[id]
+		if d then
+			t_insert(out, { id = id, url = d.url, header = d.header, body = d.body })
+		end
+	end
+	return out
+end
+
+-- {id, status, body, header} or {id, error}: the result, judged as the
+-- download sub script in Launch.lua does
+function api.downloadDone(req)
+	local d = downloads.queue[req.id]
+	if not d then
+		error("no download " .. tostring(req.id))
+	end
+	downloads.queue[req.id] = nil
+	for i, id in ipairs(downloads.order) do
+		if id == req.id then
+			table.remove(downloads.order, i)
+			break
+		end
+	end
+	local body = req.body or ""
+	local errMsg
+	if req.error then
+		errMsg = req.error
+	elseif req.status ~= 200 then
+		errMsg = "Response code: " .. tostring(req.status)
+	elseif #body == 0 then
+		errMsg = "No data returned"
+	end
+	d.callback({ header = req.header or "", body = body }, errMsg)
+	return { }
+end
+
+-- Character import from a public profile (the import tab's account name
+-- section): its controls in layout order, with the status line
+function api.characterImport()
+	local tab = build().importTab
+	return {
+		status = tab.charImportStatus,
+		mode = tab.charImportMode,
+		controls = layoutControls(tab.controls, "import.", function(name, control)
+			return (name:match("^siteAccount") or name:match("^siteChar") or name == "siteRemoveAccount")
+				and name ~= "siteCharImportStatusLabel" and control._className ~= "ScrollBarControl"
+		end),
+	}
+end
+
 -- Dispatch: one JSON request {cmd, ...}, one JSON response. Each command is
 -- followed by one frame, which recalculates when the build changed.
 
@@ -1225,7 +1294,8 @@ function api.handle(text)
 		launch.promptMsg = nil
 		return json.encode({ error = tostring(msg) })
 	end
-	local eok, out = pcall(json.encode, { ok = res })
+	local pending = pendingDownloads()
+	local eok, out = pcall(json.encode, { ok = res, downloads = #pending > 0 and pending or nil })
 	if eok then
 		return out
 	end

@@ -21,7 +21,7 @@ build exactly as upstream does, natively and in the browser. See
 | 2 Core calcs | done |
 | 3 Engine API and WASM | done; incremental and parallel calcs and the performance targets come with phase 7 |
 | 4 Frontend MVP | done |
-| 5 Full frontend | mostly done: tree, skills, items with crafting, calcs, config, notes, party, import/export; open: compare, character import via OAuth, trade, tree art, node power over several workers |
+| 5 Full frontend | mostly done: tree, skills, items with crafting, calcs, config, notes, party, import/export, character import from public profiles; open: compare, trade, tree art, node power over several workers; OAuth import waits for GGG |
 | 6 Daily sync | started (`sync` skill) |
 | 7 Typed engine | in progress: `initEnv` typed; `perform`, defence and offence typed except minions, triggers, mirages and breakdowns |
 
@@ -36,7 +36,7 @@ repository but generated from the upstream submodule at build time.
 
 | Path | Purpose |
 | --- | --- |
-| `crates/` | Rust: `engine`, `importer`, `lua` (Lua semantics, parser and runtime), `upstream` (upstream's program translated to Rust), `session` (engine API), `wasm` (the engine for the browser), `cli` (`pob`, native runner), `equivalence` (oracle tests) |
+| `crates/` | Rust: `engine`, `importer`, `lua` (Lua semantics, parser and runtime), `upstream` (upstream's program translated to Rust), `session` (engine API), `wasm` (the engine for the browser), `cli` (`pob`, native runner), `proxy` (`pob-proxy`, for character import), `equivalence` (oracle tests) |
 | `web/` | The web app (TypeScript, Preact, Vite) |
 | `upstream/PathOfBuilding` | Upstream PoB Community, pinned to a commit on `dev` (git submodule) |
 | `oracle/` | Runs upstream headless to produce expected outputs and coverage |
@@ -64,6 +64,10 @@ npm run build:data   # public/data, generated from the submodule, never committe
 npm run dev
 npm test             # the wasm engine against the native one (cargo build --release -p cli first)
 ```
+
+Character import from public profiles needs `pob-proxy` running and
+`web/public/config.json` pointing at it, see
+[crates/proxy/README.md](crates/proxy/README.md).
 
 ## License
 

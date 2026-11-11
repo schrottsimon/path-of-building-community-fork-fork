@@ -4,6 +4,7 @@
 // edits never wait for it.
 
 import type { WorkerRequest, WorkerResponse } from "./worker";
+import { type Download, fetchDownload } from "./downloads";
 
 export class EngineError extends Error {}
 
@@ -22,15 +23,42 @@ class EngineWorker {
     this.worker.postMessage({ init: new URL(".", document.baseURI).href } satisfies WorkerRequest);
   }
 
-  call<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
+  private request(req: Record<string, unknown>): Promise<WorkerResponse["res"]> {
     const id = this.next++;
-    return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, (res) => {
-        if (res.error !== undefined) reject(new EngineError(res.error));
-        else resolve(res.ok as T);
-      });
-      this.worker.postMessage({ id, req: { cmd, ...args } } satisfies WorkerRequest);
+    return new Promise((resolve) => {
+      this.pending.set(id, resolve);
+      this.worker.postMessage({ id, req } satisfies WorkerRequest);
     });
+  }
+
+  // Downloads some request is already fetching: every response lists all
+  // queued downloads, so concurrent requests see the same ones
+  private claimed = new Set<number>();
+
+  private claim(list?: Download[]): Download[] {
+    const mine = (list ?? []).filter((d) => !this.claimed.has(d.id));
+    for (const d of mine) this.claimed.add(d.id);
+    return mine;
+  }
+
+  // A command, and the downloads it started, until none are left (a
+  // download's callback may start the next one)
+  async call<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
+    const res = await this.request({ cmd, ...args });
+    if (res.error !== undefined) throw new EngineError(res.error);
+    let downloads = this.claim(res.downloads);
+    while (downloads.length) {
+      const results = await Promise.all(downloads.map((d) => fetchDownload(d)));
+      const next: Download[] = [];
+      for (const r of results) {
+        const done = await this.request({ cmd: "downloadDone", ...r });
+        this.claimed.delete(r.id);
+        if (done.error !== undefined) throw new EngineError(done.error);
+        next.push(...this.claim(done.downloads));
+      }
+      downloads = next;
+    }
+    return res.ok as T;
   }
 }
 
