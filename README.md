@@ -9,10 +9,21 @@ The goals are the same numbers as upstream, enforced by equivalence tests
 against upstream itself, and much faster recalcs and power calculations
 (node, anoint, items, gems). Daily jobs port new upstream commits.
 
-**Status:** phases 2 to 4 done and much of 5: upstream's program, translated
-to Rust, calculates every corpus build exactly as upstream does, natively and
-in the browser, and the web app has the tree, skills, items, calcs, config,
-notes and import/export. See [docs/design.md](docs/design.md) for what is open.
+**Status:** upstream's program, translated to Rust, calculates every corpus
+build exactly as upstream does, natively and in the browser. See
+[docs/design.md](docs/design.md#phases) for the phases and
+[docs/progress.md](docs/progress.md) for the typed engine.
+
+| Phase | Status |
+| --- | --- |
+| 0 Harness (oracle, corpus, coverage) | done |
+| 1 Data and mod parser | done |
+| 2 Core calcs | done |
+| 3 Engine API and WASM | done; incremental and parallel calcs and the performance targets come with phase 7 |
+| 4 Frontend MVP | done |
+| 5 Full frontend | mostly done: tree, skills, items with crafting, calcs, config, notes, party, import/export; open: compare, character import via OAuth, trade, tree art, node power over several workers |
+| 6 Daily sync | started (`sync` skill) |
+| 7 Typed engine | in progress: `initEnv` typed; `perform`, defence and offence typed except minions, triggers, mirages and breakdowns |
 
 ## Disclaimer
 
