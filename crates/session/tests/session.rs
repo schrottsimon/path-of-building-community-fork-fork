@@ -228,6 +228,44 @@ fn compare_builds() {
     );
     assert_eq!(stats(&s), before, "the power report changed the build");
 
+    // Tree overlay: the build's and the comparison's allocations
+    let ts = call(&s, json!({"cmd": "treeState"}));
+    let cts = call(&s, json!({"cmd": "treeState", "compare": true}));
+    let set = |v: &J| -> std::collections::BTreeSet<i64> {
+        v["alloc"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_i64().unwrap())
+            .collect()
+    };
+    let (mine, theirs) = (set(&ts), set(&cts));
+    let tree = call(&s, json!({"cmd": "compareTree"}));
+    let kind = |k: &str| -> std::collections::BTreeSet<i64> {
+        tree["diff"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(_, v)| *v == k)
+            .map(|(id, _)| id.parse().unwrap())
+            .collect()
+    };
+    assert_eq!(kind("added"), &theirs - &mine);
+    assert_eq!(kind("removed"), &mine - &theirs);
+    let tip = call(
+        &s,
+        json!({"cmd": "nodeTooltip", "compare": true, "id": cts["alloc"][1]}),
+    );
+    assert!(!tip["lines"].as_array().unwrap().is_empty());
+
+    // Copying the compared tree into the build as a new tree set
+    call(
+        &s,
+        json!({"cmd": "control", "path": "compare.copySpecUseBtn", "click": true}),
+    );
+    assert_eq!(set(&call(&s, json!({"cmd": "treeState"}))), theirs);
+    assert_eq!(call(&s, json!({"cmd": "treeSpecs"}))["active"], 2);
+
     call(&s, json!({"cmd": "compareRemove", "index": 1}));
     assert_eq!(call(&s, json!({"cmd": "compare"}))["entries"], json!([]));
 }

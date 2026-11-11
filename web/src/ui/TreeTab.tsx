@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { TabProps } from "../app";
 import { engine } from "../app";
-import type { NodePower, Tree, TreeNode, TreeState, TooltipLine } from "../engine/types";
+import type { CompareTree, NodePower, Tree, TreeNode, TreeState, TooltipLine } from "../engine/types";
 import { FloatingTooltip } from "./Tooltip";
 import { ColorText } from "./ColorText";
 
@@ -24,7 +24,14 @@ type View = { scale: number; x: number; y: number };
 
 type Mastery = { id: number; options: { label: string; id: number }[] };
 
-export function TreeTab({ act, rev }: TabProps) {
+// How the tree is shown: the build's own tree; the build's tree with a
+// comparison build's differences on it (the Compare tab's overlay); or the
+// comparison build's tree, read only (the Compare tab's side by side view)
+export type TreeMode = "build" | "overlay" | "compare";
+
+export function TreeTab({ act, rev, mode = "build" }: TabProps & { mode?: TreeMode }) {
+  const other = mode === "compare" ? { compare: true } : {};
+  const [overlay, setOverlay] = useState<CompareTree | null>(null);
   const [tree, setTree] = useState<Tree | null>(null);
   const [ts, setTs] = useState<TreeState | null>(null);
   const [hover, setHover] = useState<{ node: TreeNode; x: number; y: number } | null>(null);
@@ -45,15 +52,16 @@ export function TreeTab({ act, rev }: TabProps) {
   useEffect(() => {
     (async () => {
       const [t, s, sp] = await Promise.all([
-        engine.call<Tree>("tree"),
-        engine.call<TreeState>("treeState"),
+        engine.call<Tree>("tree", other),
+        engine.call<TreeState>("treeState", other),
         engine.call<{ active: number; list: string[] }>("treeSpecs"),
       ]);
       setTree(t);
       setTs(s);
       setSpecs(sp);
+      setOverlay(mode === "overlay" ? await engine.call<CompareTree>("compareTree") : null);
     })();
-  }, [rev]);
+  }, [rev, mode]);
 
   useEffect(() => {
     engine.call<{ stat?: string; label: string }[]>("powerStats").then(setPowerStats);
@@ -103,7 +111,7 @@ export function TreeTab({ act, rev }: TabProps) {
   useEffect(() => {
     const c = canvas.current;
     if (!c || !tree || !ts || !view.current) return;
-    draw(c, view.current, tree, byId, alloc, ts, path, matches, power);
+    draw(c, view.current, tree, byId, alloc, ts, path, matches, power, overlay);
   });
 
   useEffect(() => {
@@ -147,8 +155,8 @@ export function TreeTab({ act, rev }: TabProps) {
     const id = hover.node.id;
     const t = setTimeout(async () => {
       const [tt, p] = await Promise.all([
-        engine.call<{ lines: TooltipLine[] }>("nodeTooltip", { id }),
-        engine.call<{ path: number[] }>("nodePath", { id }),
+        engine.call<{ lines: TooltipLine[] }>("nodeTooltip", { id, ...other }),
+        engine.call<{ path: number[] }>("nodePath", { id, ...other }),
       ]);
       if (!stale) {
         setTip(tt.lines);
@@ -182,7 +190,7 @@ export function TreeTab({ act, rev }: TabProps) {
     drag.current = null;
     if (d?.moved) return;
     const n = nodeAt(e);
-    if (!n) return;
+    if (!n || mode === "compare") return;
     const r = await act<{ mastery?: { label: string; id: number }[] }>("clickNode", { id: n.id });
     if (r?.mastery) setMastery({ id: n.id, options: r.mastery });
   };
@@ -204,7 +212,7 @@ export function TreeTab({ act, rev }: TabProps) {
   return (
     <div class="tree-tab">
       <div class="tree-toolbar">
-        {specs && specs.list.length > 1 ? (
+        {mode === "build" && specs && specs.list.length > 1 ? (
           <select value={String(specs.active)} onChange={(e) => act("selectTreeSpec", { index: Number((e.target as HTMLSelectElement).value) })}>
             {specs.list.map((t, i) => (
               <option key={i} value={String(i + 1)}>
@@ -214,6 +222,8 @@ export function TreeTab({ act, rev }: TabProps) {
           </select>
         ) : null}
         <input type="search" placeholder="Search nodes" value={search} onInput={(e) => setSearch((e.target as HTMLInputElement).value)} />
+        {mode === "build" ? (
+        <>
         <label>
           Node power:{" "}
           <select value={String(powerIndex)} onChange={(e) => setPowerIndex(Number((e.target as HTMLSelectElement).value))}>
@@ -228,6 +238,8 @@ export function TreeTab({ act, rev }: TabProps) {
         {powerBusy ? <span class="busy">calculating node power...</span> : null}
         <button onClick={() => act("resetTree")}>Reset tree</button>
         <button onClick={() => act("undo")}>Undo</button>
+        </>
+        ) : null}
       </div>
       <canvas
         ref={canvas}
@@ -292,7 +304,13 @@ function draw(
   path: Set<number>,
   matches: Set<number> | null,
   power: NodePower | null,
+  overlay: CompareTree | null,
 ) {
+  // Overlay colors, as PassiveTreeView's for a compareSpec
+  const added = "#20e020";
+  const removed = "#e02020";
+  const changed = "#3060ff";
+  const cmpAlloc = overlay ? new Set(overlay.alloc) : null;
   const dpr = window.devicePixelRatio || 1;
   const w = c.clientWidth;
   const h = c.clientHeight;
@@ -315,8 +333,10 @@ function draw(
     if (!a || !b) continue;
     const active = alloc.has(a.id) && alloc.has(b.id);
     const inPath = (alloc.has(a.id) || path.has(a.id)) && (alloc.has(b.id) || path.has(b.id)) && (path.has(a.id) || path.has(b.id));
-    ctx.strokeStyle = active ? "#c8a050" : inPath ? "#6fa8dc" : otherAscendancy(conn.ascendancy) ? "#262626" : "#3a3a3a";
-    ctx.lineWidth = Math.max(active || inPath ? 9 : 6, 1.5 * px);
+    const cmpActive = cmpAlloc ? cmpAlloc.has(a.id) && cmpAlloc.has(b.id) : active;
+    ctx.strokeStyle =
+      cmpActive && !active ? added : active && !cmpActive ? removed : active ? "#c8a050" : inPath ? "#6fa8dc" : otherAscendancy(conn.ascendancy) ? "#262626" : "#3a3a3a";
+    ctx.lineWidth = Math.max(active || inPath || cmpActive ? 9 : 6, 1.5 * px);
     ctx.beginPath();
     if (conn.arc) {
       const { x, y, r } = conn.arc;
@@ -346,13 +366,26 @@ function draw(
     else if (n.kind === "ClassStart") fill = isAlloc ? "#806030" : "#202020";
     else if (isAlloc) fill = "#c8a050";
     if (power && !isAlloc) fill = powerColor(power, n.id) ?? fill;
+    const diff = overlay?.diff[String(n.id)];
+    if (diff === "added") fill = added;
     ctx.globalAlpha = faded ? 0.35 : 1;
     ctx.beginPath();
     ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
     ctx.fillStyle = fill;
     ctx.fill();
     ctx.lineWidth = Math.max(4, 1 * px);
-    ctx.strokeStyle = path.has(n.id) && !isAlloc ? "#6fa8dc" : isAlloc ? "#f0d080" : "#555";
+    ctx.strokeStyle = diff
+      ? diff === "added"
+        ? added
+        : diff === "removed"
+          ? removed
+          : changed
+      : path.has(n.id) && !isAlloc
+        ? "#6fa8dc"
+        : isAlloc
+          ? "#f0d080"
+          : "#555";
+    if (diff) ctx.lineWidth = Math.max(12, 3 * px);
     ctx.stroke();
     if (matches?.has(n.id)) {
       ctx.beginPath();
@@ -363,6 +396,14 @@ function draw(
     }
   }
   ctx.globalAlpha = 1;
+
+  // The comparison's allocated nodes the build's tree lacks
+  for (const n of overlay?.extra ?? []) {
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, radius[n.kind] ?? 24, 0, 2 * Math.PI);
+    ctx.fillStyle = added;
+    ctx.fill();
+  }
 
   // Names of notables and keystones when zoomed in
   if (v.scale > 0.12) {

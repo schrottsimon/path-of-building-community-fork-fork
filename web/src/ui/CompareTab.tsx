@@ -6,9 +6,13 @@
 import { useEffect, useState } from "preact/hooks";
 import type { TabProps } from "../app";
 import { engine } from "../app";
-import type { Compare, ComparePower } from "../engine/types";
+import type { Compare, ComparePower, CompareTree } from "../engine/types";
 import { ColorText } from "./ColorText";
 import { ControlView } from "./Control";
+import { TreeTab } from "./TreeTab";
+
+const views = ["Summary", "Tree"] as const;
+type View = (typeof views)[number];
 
 const headerLabels: Record<string, string> = {
   "compare.compareBuildSelect": "Compare with",
@@ -24,8 +28,10 @@ const headerLabels: Record<string, string> = {
   "compare.cmpMinionSkill": "Minion skill",
 };
 
-export function CompareTab({ act, rev, setControl }: TabProps) {
+export function CompareTab(props: TabProps) {
+  const { act, rev, setControl } = props;
   const [cmp, setCmp] = useState<Compare | null>(null);
+  const [view, setView] = useState<View>("Summary");
   const [power, setPower] = useState<ComparePower | null>(null);
   const [powerBusy, setPowerBusy] = useState(false);
   const [input, setInput] = useState("");
@@ -85,6 +91,16 @@ export function CompareTab({ act, rev, setControl }: TabProps) {
         <p>Import a build to compare it with this one.</p>
       )}
       {cmp.summary ? (
+        <nav class="compare-views">
+          {views.map((v) => (
+            <button key={v} class={v === view ? "active" : ""} onClick={() => setView(v)}>
+              {v}
+            </button>
+          ))}
+        </nav>
+      ) : null}
+      {cmp.summary && view === "Tree" ? <CompareTreeView {...props} /> : null}
+      {cmp.summary && view === "Summary" ? (
         <>
           <table class="compare-summary">
             <thead>
@@ -159,6 +175,42 @@ export function CompareTab({ act, rev, setControl }: TabProps) {
           ) : null}
         </>
       ) : null}
+    </div>
+  );
+}
+
+// Tree: the build's tree with the comparison's differences on it, or both
+// trees side by side; the comparison's tree set and copying it into the build
+function CompareTreeView(props: TabProps) {
+  const { rev, setControl } = props;
+  const [ct, setCt] = useState<CompareTree | null>(null);
+  useEffect(() => {
+    engine.call<CompareTree>("compareTree").then(setCt);
+  }, [rev]);
+  if (!ct) return <p>Loading...</p>;
+  return (
+    <div class="compare-tree">
+      <div class="compare-controls">
+        {ct.controls.map((c) => (
+          <ControlView key={c.path} path={c.path!} c={c} set={setControl} label={c.path === "compare.rightSpecSelect" ? "Compared tree" : undefined} />
+        ))}
+        {ct.overlay ? (
+          <span class="compare-legend">
+            <span style={{ color: "#20e020" }}>only compared</span> <span style={{ color: "#e02020" }}>only this build</span>{" "}
+            <span style={{ color: "#3060ff" }}>different mastery or jewel</span>
+          </span>
+        ) : null}
+      </div>
+      {ct.overlay ? (
+        <div class="compare-trees">
+          <TreeTab key="overlay" {...props} mode="overlay" />
+        </div>
+      ) : (
+        <div class="compare-trees side">
+          <TreeTab key="build" {...props} />
+          <TreeTab key="compare" {...props} mode="compare" />
+        </div>
+      )}
     </div>
   );
 }

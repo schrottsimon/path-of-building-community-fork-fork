@@ -159,3 +159,11 @@ export type Compare = {
 };
 
 export type ComparePower = { columns?: string[]; rows: { cells: string[]; nodeId?: number }[]; status?: string };
+
+export type CompareTree = {
+  diff: Record<string, "added" | "removed" | "changed">;
+  extra: TreeNode[];
+  alloc: number[];
+  overlay: boolean;
+  controls: Control[];
+};

@@ -322,8 +322,21 @@ end
 
 -- Geometry of the tree as the build's spec has it (cluster jewel subgraphs
 -- included): nodes, groups and connectors, in tree coordinates.
-function api.tree()
-	local spec = build().spec
+-- The build a tree command works on: the build, or with `compare` set the
+-- active comparison build (CompareEntry), as the Compare tab's tree shows it
+local function treeBuild(req)
+	if req and req.compare then
+		local entry = build().compareTab:GetActiveCompare()
+		if not entry then
+			error("no comparison build")
+		end
+		return entry
+	end
+	return build()
+end
+
+function api.tree(req)
+	local spec = treeBuild(req).spec
 	local tree = spec.tree
 	local nodes = { }
 	for id, node in pairs(spec.nodes) do
@@ -393,8 +406,8 @@ function api.tree()
 end
 
 -- What changes per edit: allocation, paths, masteries, jewels
-function api.treeState()
-	local b = build()
+function api.treeState(req)
+	local b = treeBuild(req)
 	local spec = b.spec
 	local alloc = { }
 	for id in pairs(spec.allocNodes) do
@@ -423,7 +436,7 @@ end
 
 -- The path that allocating a node takes
 function api.nodePath(req)
-	local node = build().spec.nodes[req.id]
+	local node = treeBuild(req).spec.nodes[req.id]
 	if not node then
 		error("no node " .. tostring(req.id))
 	end
@@ -432,7 +445,7 @@ function api.nodePath(req)
 end
 
 function api.nodeTooltip(req)
-	local b = build()
+	local b = treeBuild(req)
 	local node = b.spec.nodes[req.id]
 	if not node then
 		error("no node " .. tostring(req.id))
@@ -1320,6 +1333,75 @@ function api.compare()
 		out.powerControls = compareControlList(tab, comparePowerControls)
 	end
 	return out
+end
+
+-- The tree overlay: the build's tree with the comparison's spec set as the
+-- viewer's compareSpec, each node colored as PassiveTreeView colors it
+-- (GetCompareNodeColor: green only the comparison has it, red only the
+-- build has it, blue a different mastery effect or jewel), and the
+-- comparison's allocated nodes the build's tree lacks (cluster jewel
+-- subgraphs), which the viewer draws on top
+local compareColors = { ["0,1,0"] = "added", ["1,0,0"] = "removed", ["0,0,1"] = "changed" }
+
+function api.compareTree()
+	local tab, entry = compareSync()
+	if not entry then
+		error("no comparison build")
+	end
+	local b = build()
+	local spec = b.spec
+	local viewer = b.treeTab.viewer
+	viewer.compareSpec = entry.spec
+	local diff = { }
+	local ok, err = pcall(function()
+		for id, node in pairs(spec.nodes) do
+			local cNode = entry.spec.nodes[id]
+			if cNode then
+				local r, g, bl = viewer:GetCompareNodeColor(node, cNode, spec, b, "^xFFFFFF")
+				local kind = compareColors[tostring(r) .. "," .. tostring(g) .. "," .. tostring(bl)]
+				if kind then
+					diff[tostring(id)] = kind
+				end
+			end
+		end
+	end)
+	viewer.compareSpec = nil
+	if not ok then
+		error(err, 0)
+	end
+	local extra = { }
+	for id, node in pairs(entry.spec.nodes) do
+		if not spec.nodes[id] and node.alloc and node.x and node.y and node.group and not node.isProxy
+			and node.type ~= "ClassStart" and node.type ~= "AscendClassStart" then
+			t_insert(extra, {
+				id = id,
+				name = node.dn,
+				kind = nodeKind(node),
+				x = node.x,
+				y = node.y,
+				stats = arrayOf(node.sd, function(l) return l end),
+			})
+		end
+	end
+	table.sort(extra, function(a, c) return a.id < c.id end)
+	local alloc = { }
+	for id in pairs(entry.spec.allocNodes) do
+		t_insert(alloc, id)
+	end
+	table.sort(alloc)
+	-- The tree view's controls, laid out as CompareTab:LayoutTreeView does
+	local mode = tab.compareViewMode
+	tab.compareViewMode = "TREE"
+	tab:LayoutTreeView({ x = 0, y = 0, width = 1600, height = 900 }, entry)
+	local controls = compareControlList(tab, { "treeOverlayCheck", "rightSpecSelect", "rightVersionSelect", "copySpecBtn", "copySpecUseBtn" })
+	tab.compareViewMode = mode
+	return {
+		diff = diff,
+		extra = setmetatable(extra, { __jsontype = "array" }),
+		alloc = setmetatable(alloc, { __jsontype = "array" }),
+		overlay = tab.treeOverlayMode and true or false,
+		controls = controls,
+	}
 end
 
 -- CompareTab:ImportBuild / ImportFromCode, as the import popup does

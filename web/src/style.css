@@ -519,3 +519,34 @@ textarea {
 .compare-summary tr.gap td {
   height: 6px;
 }
+.compare-views {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.compare-views button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.compare-legend span {
+  margin-right: 10px;
+}
+.compare-trees {
+  display: flex;
+  gap: 4px;
+  height: 70vh;
+  min-height: 360px;
+}
+.compare-trees > .tree-tab {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .compare-trees.side {
+    flex-direction: column;
+    height: auto;
+  }
+  .compare-trees.side > .tree-tab {
+    height: 50vh;
+  }
+}
