@@ -21,8 +21,8 @@ upstream = "b32759ab0f31a1c8499a0d420cb0f0633d4fe478"
 "Classes/CompareBuySimilar.lua" = { status = "todo" }
 "Classes/CompareCalcsHelpers.lua" = { status = "todo" }
 "Classes/CompareEntry.lua" = { status = "todo" }
-"Classes/ComparePowerReportListControl.lua" = { status = "todo" }
-"Classes/CompareTab.lua" = { status = "todo" }
+"Classes/ComparePowerReportListControl.lua" = { status = "partial", port = "web/src/ui/CompareTab.tsx", sync = "b32759ab0f31a1c8499a0d420cb0f0633d4fe478" }
+"Classes/CompareTab.lua" = { status = "partial", port = "web/src/ui/CompareTab.tsx crates/session/lua/session.lua", sync = "b32759ab0f31a1c8499a0d420cb0f0633d4fe478" }
 "Classes/ConfigSetListControl.lua" = { status = "todo" }
 "Classes/ConfigTab.lua" = { status = "partial", port = "web/src/ui/ConfigTab.tsx crates/engine/src/config.rs crates/engine/src/config_tab.rs", sync = "b32759ab0f31a1c8499a0d420cb0f0633d4fe478" }
 "Classes/Control.lua" = { status = "todo" }

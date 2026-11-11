@@ -9,6 +9,7 @@ import { ItemsTab } from "./ui/ItemsTab";
 import { ConfigTab } from "./ui/ConfigTab";
 import { NotesTab } from "./ui/NotesTab";
 import { PartyTab } from "./ui/PartyTab";
+import { CompareTab } from "./ui/CompareTab";
 import { ImportTab, loadFromHash } from "./ui/ImportTab";
 import { PopupView } from "./ui/Popup";
 import type { SetControl } from "./ui/Control";
@@ -24,7 +25,7 @@ export type TabProps = {
   state: State;
 };
 
-const tabs = ["Import/Export", "Tree", "Skills", "Items", "Calcs", "Config", "Notes", "Party"] as const;
+const tabs = ["Import/Export", "Tree", "Skills", "Items", "Calcs", "Config", "Notes", "Party", "Compare"] as const;
 type Tab = (typeof tabs)[number];
 
 export function App() {
@@ -108,6 +109,7 @@ export function App() {
         {tab === "Config" ? <ConfigTab {...props} /> : null}
         {tab === "Notes" ? <NotesTab {...props} /> : null}
         {tab === "Party" ? <PartyTab {...props} /> : null}
+        {tab === "Compare" ? <CompareTab {...props} /> : null}
       </main>
       {state.popups.length ? <PopupView popup={state.popups[0]} act={act} /> : null}
     </div>

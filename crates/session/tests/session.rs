@@ -179,6 +179,97 @@ fn session_commands() {
     assert!(r.contains("\"error\""), "{r}");
 }
 
+/// The compare tab: importing a comparison build, the summary next to the
+/// build, the power report, and removing it again leave the build as it was.
+#[test]
+fn compare_builds() {
+    let s = session();
+    call(&s, json!({"cmd": "loadXml", "xml": corpus_xml()}));
+    let before = stats(&s);
+    let cmp = call(&s, json!({"cmd": "compare"}));
+    assert_eq!(cmp["entries"], json!([]));
+    assert!(cmp["summary"].is_null());
+
+    // A build code, as the import popup takes it
+    let other = std::fs::read_to_string(root().join("corpus/generated/gen-0003.xml")).unwrap();
+    let probe = session();
+    call(&probe, json!({"cmd": "loadXml", "xml": other}));
+    let code = call(&probe, json!({"cmd": "saveCode"}))["code"].clone();
+    call(
+        &s,
+        json!({"cmd": "compareImport", "code": code, "name": "other"}),
+    );
+    let cmp = call(&s, json!({"cmd": "compare"}));
+    assert_eq!(cmp["entries"], json!(["other"]));
+    assert_eq!(cmp["active"], 1);
+    let rows = cmp["summary"].as_array().unwrap();
+    assert!(
+        rows.iter().any(|r| r["diff"].is_string()),
+        "no differences in the summary: {cmp}"
+    );
+    assert_eq!(
+        stats(&s),
+        before,
+        "importing a comparison changed the build"
+    );
+
+    // Power report over every category, for the first metric
+    let none = call(&s, json!({"cmd": "comparePower"}));
+    assert_eq!(none["rows"], json!([]));
+    call(
+        &s,
+        json!({"cmd": "control", "path": "compare.comparePowerStatSelect", "sel": 2}),
+    );
+    let power = call(&s, json!({"cmd": "comparePower"}));
+    assert_eq!(power["columns"].as_array().unwrap().len(), 5);
+    assert!(
+        !power["rows"].as_array().unwrap().is_empty(),
+        "empty power report: {power}"
+    );
+    assert_eq!(stats(&s), before, "the power report changed the build");
+
+    // Tree overlay: the build's and the comparison's allocations
+    let ts = call(&s, json!({"cmd": "treeState"}));
+    let cts = call(&s, json!({"cmd": "treeState", "compare": true}));
+    let set = |v: &J| -> std::collections::BTreeSet<i64> {
+        v["alloc"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_i64().unwrap())
+            .collect()
+    };
+    let (mine, theirs) = (set(&ts), set(&cts));
+    let tree = call(&s, json!({"cmd": "compareTree"}));
+    let kind = |k: &str| -> std::collections::BTreeSet<i64> {
+        tree["diff"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(_, v)| *v == k)
+            .map(|(id, _)| id.parse().unwrap())
+            .collect()
+    };
+    assert_eq!(kind("added"), &theirs - &mine);
+    assert_eq!(kind("removed"), &mine - &theirs);
+    let tip = call(
+        &s,
+        json!({"cmd": "nodeTooltip", "compare": true, "id": cts["alloc"][1]}),
+    );
+    assert!(!tip["lines"].as_array().unwrap().is_empty());
+
+    // Copying the compared tree into the build as a new tree set
+    call(
+        &s,
+        json!({"cmd": "control", "path": "compare.copySpecUseBtn", "click": true}),
+    );
+    assert_eq!(set(&call(&s, json!({"cmd": "treeState"}))), theirs);
+    assert_eq!(call(&s, json!({"cmd": "treeSpecs"}))["active"], 2);
+
+    call(&s, json!({"cmd": "compareRemove", "index": 1}));
+    assert_eq!(call(&s, json!({"cmd": "compare"}))["entries"], json!([]));
+}
+
 #[test]
 fn bundle_round_trip() {
     let packed = session::bundle::pack([("a.lua", &b"return 1"[..]), ("b/c.txt", b"x")]);

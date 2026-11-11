@@ -474,3 +474,79 @@ textarea {
 .party-tab textarea {
   min-height: 80px;
 }
+
+.compare-tab {
+  padding: 8px 12px;
+  max-width: 1100px;
+}
+.compare-import {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.compare-import textarea {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.compare-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.compare-summary,
+.compare-power {
+  border-collapse: collapse;
+  width: 100%;
+}
+.compare-summary th,
+.compare-power th {
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.compare-summary td,
+.compare-power td {
+  padding: 1px 8px 1px 0;
+}
+.compare-summary .num,
+.compare-power .num {
+  text-align: right;
+  white-space: nowrap;
+}
+.compare-summary tr.gap td {
+  height: 6px;
+}
+.compare-views {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.compare-views button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.compare-legend span {
+  margin-right: 10px;
+}
+.compare-trees {
+  display: flex;
+  gap: 4px;
+  height: 70vh;
+  min-height: 360px;
+}
+.compare-trees > .tree-tab {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .compare-trees.side {
+    flex-direction: column;
+    height: auto;
+  }
+  .compare-trees.side > .tree-tab {
+    height: 50vh;
+  }
+}
